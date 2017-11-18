@@ -4,19 +4,19 @@
 #
 # Copyright (c) 2009-2011 Karoly Lorentey  <karoly@lorentey.hu>
 # All rights reserved.
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
 # are met:
-# 
+#
 # - Redistributions of source code must retain the above copyright
 #   notice, this list of conditions and the following disclaimer.
-# 
+#
 # - Redistributions in binary form must reproduce the above copyright
 #   notice, this list of conditions and the following disclaimer in
 #   the documentation and/or other materials provided with the
 #   distribution.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
@@ -41,7 +41,7 @@ def python_version_check():
         print("There are data corruption issues with Python 3.1.0's io module; \n"
               "please upgrade Python to at least 3.1.1 in order for Stagger \n"
               "to work reliably.\n\n"
-              "For more information, see http://bugs.python.org/issue6629.", 
+              "For more information, see http://bugs.python.org/issue6629.",
               file=sys.stderr)
         exit(2)
 
@@ -60,7 +60,7 @@ def check_tag_data(data):
     length = stagger.conversion.Syncsafe.decode(data[6:10]) + 10
     if len(data) != length:
         raise ValueError("Tag size mismatch")
-    
+
 def get_raw_tag_data(filename):
     "Return the ID3 tag in FILENAME as a raw byte string."
     with open(filename, "rb") as file:
@@ -109,6 +109,7 @@ def set_frames(filename, valuedict, act=True, verbose=False):
         verb(verbose, "{0}: {1}: set to {2}".format(filename, key, newval))
     if act:
         tag.write(filename)
+    return tag
 
 def remove_frames(filename, frameids, act=True, verbose=False):
     try:

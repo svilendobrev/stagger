@@ -4,19 +4,19 @@
 #
 # Copyright (c) 2009-2011 Karoly Lorentey  <karoly@lorentey.hu>
 # All rights reserved.
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
 # are met:
-# 
+#
 # - Redistributions of source code must retain the above copyright
 #   notice, this list of conditions and the following disclaimer.
-# 
+#
 # - Redistributions in binary form must reproduce the above copyright
 #   notice, this list of conditions and the following disclaimer in
 #   the documentation and/or other materials provided with the
 #   distribution.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
@@ -59,7 +59,7 @@ def create_parser():
 
     parser.add_option("-v", "--verbose", action="store_true", dest="verbose",
                       help="Explain what is being done")
-    parser.add_option("-n", "--no-act", 
+    parser.add_option("-n", "--no-act",
                       action="store_false", dest="act", default=True,
                       help="Don't actually change any files; implies --verbose.")
 
@@ -79,6 +79,14 @@ def create_parser():
                      help="Remove all instances of FRAME")
 
     parser.add_option_group(group)
+
+    group.add_option("--encoding",
+                     dest = "encoding",
+                     default = "iso-8859-1",
+                     help = "encoding of id3-v1 texts [%default]")
+    group.add_option("--v12",
+                     dest = "v12", action = "store_true",
+                     help = "apply for both id3-v2 and id3-v1")
 
     # Debug group
     group = OptionGroup(parser, "Debugging options")
@@ -116,48 +124,49 @@ def print_stats():
     except (ImportError, AttributeError, ValueError):
         pass # Give up
 
+stagger.Tag1._friendly_names = 'title artist album year comment genre track'.split()
 
 def main():
     warnings.simplefilter("always", stagger.Warning)
-    
+
     # Work around idiotical python encoding heuristics:
     # Use locale-specified encoding on both stdout and stderr,
     # regardless of whether they are ttys
     sys.stdout = codecs.getwriter(locale.getpreferredencoding())(sys.stdout.buffer)
     sys.stderr = codecs.getwriter(locale.getpreferredencoding())(sys.stderr.buffer)
-    
+
     parser = create_parser()
     (options, args) = parser.parse_args()
-    
+
     if not options.act:
         options.verbose = True
-    
-    
+
+
     def check_cmds(parser, options):
         cmds = ("dump", "load", "delete", "print", "list", "set", "remove")
         num = sum(1 for cmd in cmds if getattr(options, cmd, False))
         if num > 1:
             parser.error("conflicting commands")
-    
+
     check_cmds(parser, options)
-    
+
     def verbose(*args, **kwargs):
         if options.verbose:
             print(*args, **kwargs)
-    
+
     par = { "act": options.act, "verbose": options.verbose }
-    
+
     try:
         if options.dump:
             sys.stdout.stream.write(stagger.util.get_raw_tag_data(options.dump))
-    
+
         elif options.load:
             data = sys.stdin.buffer.read()
             if not data.startswith(b"ID3"):
                 parser.error("invalid tag data")
                 exit(1)
             stagger.util.set_raw_tag_data(options.load, data, **par)
-    
+
         elif options.list:
             def wraplist(strings):
                 return textwrap.fill(", ".join(strings), width=78,
@@ -171,7 +180,7 @@ def main():
                 frameids.sort()
                 print(wraplist(frameids))
                 print()
-            
+
             for version in [2, 3, 4]:
                 complement = set((2, 3, 4))
                 complement.remove(version)
@@ -181,52 +190,76 @@ def main():
             print_frame_list("Frame ids in both v2.3 and v2.4:",
                              lambda framecls: framecls._in_version(3)
                              and framecls._in_version(4))
-    
+
             print("Frame names (usable in all versions):")
             print(wraplist(stagger.tags.Tag._friendly_names))
-    
+            print("Frame names in v1.x:" )
+            print(wraplist(stagger.Tag1._friendly_names))
+
         elif options.delete:
             for filename in args:
                 with stagger.util.print_warnings(filename, options):
                     if options.act:
                         stagger.delete_tag(filename)
+                        if options.v12: stagger.Tag1.delete(filename)
                     verbose("{0}: tag deleted".format(filename))
-    
+
         elif options.set:
             for filename in args:
                 with stagger.util.print_warnings(filename, options):
                     try:
-                        stagger.util.set_frames(filename, dict(options.set), **par)
+                        tag = stagger.util.set_frames(filename, dict(options.set), **par)
+                        if options.v12:
+                            t1 = stagger.Tag1()
+                            n = 0
+                            for f in stagger.Tag1._friendly_names:
+                                if f=='year':
+                                    v = getattr( tag, 'date', None)
+                                    if v:
+                                        v = v.split('-')[0]     #see Tag._friendly_date_string
+                                else:
+                                    v = getattr( tag, f, None)
+                                v = v or None
+                                n += bool(v)
+                                setattr( t1, f, v)
+                            if n:
+                                t1.write( filename, encoding= options.encoding)
+
+
                         sys.stderr.flush()
                         sys.stdout.flush()
                     except (KeyError, ValueError) as e:
                         print(e.args[0], file=sys.stderr)
                         exit(1)
-    
+
         elif options.remove:
             for filename in args:
                 with stagger.util.print_warnings(filename, options):
                     stagger.util.remove_frames(filename, options.remove, **par)
                     sys.stderr.flush()
                     sys.stdout.flush()
-    
+
         else: # print
             for filename in args:
+              for reader in [ stagger.read_tag ] + bool(options.v12) *[ lambda *a: stagger.Tag1.read( *a,encoding=options.encoding) ] :
+                isv2 = reader is stagger.read_tag
                 with stagger.util.print_warnings(filename, options):
                     tag = None
                     try:
-                        tag = stagger.read_tag(filename)
-                        print("{0}: ID3v2.{1} tag with {2} frames"
-                              .format(filename, tag.version, len(tag)))
+                        tag = reader(filename)
+                        if isv2:
+                            print("{0}\n :ID3v2.{1} tag with {2} frames" .format(filename, tag.version, len(tag)))
+                        else: #no tag.version, len
+                            print( filename+'\n :ID3v1 tag')
                         sys.stderr.flush()
                         sys.stdout.flush()
                     except stagger.NoTagError:
-                        print(filename + ":error: No tag", file=sys.stderr)
+                        print(filename,  ":error: No tag", isv2 and 'v2' or 'v1', file=sys.stderr)
                     except stagger.Error as e:
-                        print(filename + ":error: " + ", ".join(e.args), 
+                        print(filename,  ":error: " + ", ".join(e.args),
                               file=sys.stderr)
                     except EOFError:
-                        print(filename + ":error: End of file while reading tag")
+                        print(filename,  ":error: End of file while reading tag")
 
                 with stagger.util.print_warnings(filename, options):
                     if tag:
@@ -241,16 +274,16 @@ def main():
                         print()
                     sys.stderr.flush()
                     sys.stdout.flush()
-    
+
     except IOError as e:
         print("{0}: {1}".format(e.filename, e.strerror), file=sys.stderr)
         exit(1)
     except KeyboardInterrupt:
         exit(1)
-    
+
     if options.stats:
         print_stats()
-    
+
     exit(0)
 
 if __name__ == '__main__':
